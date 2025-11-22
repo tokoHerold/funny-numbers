@@ -65,7 +65,7 @@ class Posit:
 
 
     def _float_to_posit(self, value: float):
-        """Converts a float into a n-bit posit"""
+        """Converts a 64-bit float into a n-bit posit"""
         n: int  = self.BITWIDTH
 
         # === Special Cases === #
@@ -124,7 +124,7 @@ class Posit:
             s (int): Sign (0 for positive, 1 for negative).
             r (int): Regime value (numerical exponent of useed).
             e (int): Exponent value (0-3).
-            f(str): Fraction bits.
+            f (str): Fraction bits.
         """
         assert (0 <= s < 2) and (0 <= e < 4)
         n = self.BITWIDTH
@@ -140,11 +140,8 @@ class Posit:
         bit_str += format(e, '02b')  # Binary string of length 2
         bit_str += f
         if len(bit_str) <= n:  # Value can be expressed as n-bit posit
-            # self._set_bits(bit_str.ljust(n, '0'))
-            # return
             bit_str = bit_str.ljust(n, '0')
-        else:
-            # === Posit rounding === #
+        else:  # === Posit rounding === #
             # Posit rounding works as follows:
             # let v be the n+1 bit posit currently stored in `posit_bits`
             # let u, w be the n bit posits, whose value surrounds v.
@@ -167,48 +164,45 @@ class Posit:
             self._set_bits(self._twos_complement(bit_str))
 
 
-    def _get_components(self) -> tuple[int, int, int, float]:
+    def _get_components(self) -> tuple[int, int, int, str]:
         """
         Decodes the posit components:
-        - s - the sign bit
-        - r - the regime part
-        - e - the exponent part
-        - f - the fraction part
+            s (int): Sign (0 for positive, 1 for negative).
+            r (int): Regime value (numerical exponent of useed).
+            e (int): Exponent value (0-3).
+            f (str): Fraction bits.
 
             Returns:
-                tuple[int, int, int, float] of the form (s, r, e, f).
+                tuple[int, int, int, str] of the form (s, r, e, f).
         """
         n = self.BITWIDTH
         bits = self._bits
-        # Read sign bit (s)
+        # === Read sign bit (s) === #
         s = 0 if self._bits[0] == '0' else 1
-        # Parse regime (r)
+        #  === Parse regime (r) === #
         k = bits[1:].find('0' if bits[1] == '1' else '1')  # find run length
         if k == -1: # Regime is whole posit
             k = n-1
         r = -k if bits[1] == '0' else k - 1
-        # Read exponent (e)
+        # === Read exponent (e) === #
         remaining = bits[2 + k:] # Stored in next 2 bits (spec)
         e = int(remaining[:2].ljust(2, '0'), 2)  # consider truncated exponent
-        # Calculate fraction (f)
-        f = 0.0
-        remaining = remaining[2:]
-        if len(remaining) > 0:
-            f = int(remaining.ljust(1, '0'), 2) / 2.0**len(remaining)
+        # === Read fraction (f) === #
+        f = remaining[2:]
         return s, r, e, f
 
 
     def to_float(self) -> float:
         """Converts the value of this posit into a IEEE 754 float"""
-        if self.is_zero():
+        if self.is_zero():  # Special case 1
             return +0.0
-        if self.is_nar():
+        if self.is_nar():  # Special case 2
             return float('nan')
-
-        s, r, e, f = self._get_components()
-        # Calculate float value
-        return ((1 - 3 * s) + f) * 2.0**((1 - 2 * s) * (4 * r + e + s))
-
+        s, r, e, f_str = self._get_components()
+        f = 0.0  # Transform fixed point string into float
+        if len(f_str) > 0:
+            f = int(f_str.ljust(1, '0'), 2) / 2.0**len(f_str)
+        return ((1 - 3 * s) + f) * 2.0**((1 - 2 * s) * (4 * r + e + s)) # See spec
 
 
     def __mul__(self, other: 'Posit') -> 'Posit':
