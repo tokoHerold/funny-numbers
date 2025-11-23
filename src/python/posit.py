@@ -18,12 +18,20 @@ class Posit:
         Sign Bit | Regime Bits | Exponent Bits | Fraction Bits
         n-1..n-2 |  n-3..n-k   |  n-k-1..n-m   |   n-m-1..0
 
-        The sign bit is 0 for positive values and 1 for negative values.
-        If it is 1, the remaining bits are interpreted in negative two's complement.
-        The regime bits consist of k-1 identical bits, followed by one that is inverted. k can be in the range [2, n-1].
-        The exponent consists of max(min(n - k -1, 2), 0) bits.
-        The fraction is the remainder of available bits.
-        # TODO: write this better
+        1. Sign Bit (1 bit): 
+           0 for positive, 1 for negative. 
+           Negative numbers are represented using Two's Complement.
+
+        2. Regime Bits (Variable length):
+           A run of identical bits terminated by an opposite bit. 
+           Determines the regime value (k), representing a coarse scale factor of 16^k.
+
+        3. Exponent Bits (Up to 2 bits):
+           The next 2 bits represent the unsigned exponent (e) over the base 2.
+           This field is truncated if the regime consumes too many bits.
+
+        4. Fraction Bits (Remaining bits):
+           The remaining bits form the fraction (f) of the significand 1.f.
 
         Args:
             value (float): The value of the Posit number.
