@@ -266,7 +266,7 @@ class Posit:
         if self.BITWIDTH != other.BITWIDTH:
             raise ValueError(f"Cannot multiply {self.BITWIDTH}-bit Posit with {other.BITWIDTH}-bit Posit!")
 
-        # --- Handle Special Cases --- #
+        # === Handle Special Cases === #
         if self.is_nar() or other.is_nar():
             return Posit(float('nan'), n=self.BITWIDTH)
         if self.is_zero() or other.is_zero():
@@ -276,15 +276,9 @@ class Posit:
         s_self, r_self, e_self, f_self = self._get_components()
         s_other, r_other, e_other, f_other = other._get_components()
 
-        # === Calculate Mantissa and Scale === #
-        f_len_self, f_len_other = len(f_self), len(f_other)
-        # --- Shift fraction string to left --- #
-        # Fraction currently is (1).XXX. Attach implicit one and interpret as without decimal point
-        mantissa_self = (1 << f_len_self) | (int(f_self, 2) if f_len_self > 0 else 0)
-        mantissa_other = (1 << f_len_other) | (int(f_other, 2) if f_len_other > 0 else 0)
-        # Build unified mantissa m = (4r + e) and deduct leftshift of fraction
-        scale_self = (r_self * 4 + e_self) - f_len_self
-        scale_other = (r_other * 4 + e_other) - f_len_other
+        # --- Calculate Mantissa and Scale --- #
+        mantissa_self, scale_self = self._unified_mantissa(r_self, e_self, f_self)
+        mantissa_other, scale_other = self._unified_mantissa(r_other, e_other, f_other)
 
         # === Perform multiplication === #
         mantissa = mantissa_self * mantissa_other
@@ -330,4 +324,31 @@ class Posit:
         val = int(bits, 2) + 1
         bin_val = format(val, f"0{n}b")
         return bin_val[-n:]  # Return last n bits in case of overflow
+
+
+    @staticmethod
+    def _unified_mantissa(r: int, e: int, f: str) -> tuple[int, int]:
+        """
+        Converts regime, exponent and fraction into mantissa and exponent:
+        1.f * 2^(4r + e) -> m * 2^r
+
+        While the fraction part has an implicit leading 1., the mantissa is
+        entirely displayed and interpreted as an integer without a decimal
+        point.
+
+        Args:
+            r (int): Regime value (numerical exponent of useed).
+            e (int): Exponent value (0-3).
+            f (str): Fraction bits.
+
+        Returns:
+            m, s (tuple[int, int]): Mantissa and scale (exponent). 
+        """
+        f_len = len(f)
+        # Fraction currently is (1).XXX. Attach implicit one and interpret
+        # as without decimal point (leftshift)
+        m = (1 << f_len) | (int(f, 2) if f_len > 0 else 0)
+        # Build unified mantissa (4r + e) and deduct leftshift of fraction
+        s = (r * 4 + e) - f_len
+        return m, s
 
