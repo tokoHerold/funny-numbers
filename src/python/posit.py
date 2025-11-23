@@ -10,7 +10,7 @@ class Posit:
     Implements parts of the [Posit standard](https://posithub.org/about)
     """
 
-    def __init__(self, value: float = 0.0, n: int = 32):
+    def __init__(self, value: float|str = 0.0, n: int = 32):
         """
         Initialize a Posit number with the given value, precision, and exponent size.
 
@@ -34,7 +34,8 @@ class Posit:
            The remaining bits form the fraction (f) of the significand 1.f.
 
         Args:
-            value (float): The value of the Posit number.
+            value (float|str): The value of the Posit number,
+                or the binary representation as a bit string.
             n (int): The precision of the Posit number, i.e. the number of total bits used.
         """
         if n < 2:
@@ -53,11 +54,18 @@ class Posit:
         """The largest positive posit value."""
         self._USEED: float = 16.0  # sepcified by posit standard v2
 
-        if (value != 0):
-            self._float_to_posit(value)
+        if isinstance(value, (float, int)):
+            if value != 0:
+                self._float_to_posit(value)
+        elif isinstance(value, str):
+            self._set_bits(value.ljust(n, '0'))
+        else:
+            raise ValueError(value + " is not a float or string!")
 
 
     def _set_bits(self, bits: str):
+        if not set(bits).issubset({'0', '1'}):
+            raise ValueError(f"Error: '{bits}' is not a binary string!")
         if len(bits) != self.BITWIDTH:
             raise ValueError(f"Expected {self.BITWIDTH} bits, got {len(bits)}")
         self._bits = bits
