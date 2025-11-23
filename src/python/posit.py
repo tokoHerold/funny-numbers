@@ -45,7 +45,8 @@ class Posit:
         """The largest positive posit value."""
         self._USEED: float = 16.0  # sepcified by posit standard v2
 
-        self._float_to_posit(value)
+        if (value != 0):
+            self._float_to_posit(value)
 
 
     def _set_bits(self, bits: str):
