@@ -179,6 +179,8 @@ class Posit:
         bits = self._bits
         # === Read sign bit (s) === #
         s = 0 if self._bits[0] == '0' else 1
+        if s == 1:
+            bits = self._twos_complement(bits)
         #  === Parse regime (r) === #
         k = bits[1:].find('0' if bits[1] == '1' else '1')  # find run length
         if k == -1: # Regime is whole posit
@@ -202,27 +204,96 @@ class Posit:
         f = 0.0  # Transform fixed point string into float
         if len(f_str) > 0:
             f = int(f_str.ljust(1, '0'), 2) / 2.0**len(f_str)
-        return ((1 - 3 * s) + f) * 2.0**((1 - 2 * s) * (4 * r + e + s)) # See spec
+        float_val = (1 + f) * 2**(4*r + e)
+        return float_val if s == 0 else -float_val
+
+
+    def __eq__(self, other: 'Posit') -> bool:
+        """
+        Tests if two posits are numerically equal.
+        Handles posits of different precisions (BITWIDTH).
+        """
+        if not isinstance(other, Posit):
+            return False
+
+        # === Special Cases === #
+        if self.is_nar() and other.is_nar():
+            return True # Posit spec
+        if self.is_zero() and other.is_zero():
+            return True
+        if self.is_nar() or other.is_nar():
+            return False
+
+        # === Compare Components === #
+        s1, r1, e1, f1 = self._get_components()
+        s2, r2, e2, f2 = other._get_components()
+
+        if s1 != s2 or r1 != r2 or e1 != e2:
+            return False
+
+        # === Compare Fractions === #
+        max_len = max(len(f1), len(f2)) # "1" (0.5) should equal "100" (0.500)
+        return f1.ljust(max_len, '0') == f2.ljust(max_len, '0')
+
+
+
+    def __neg__(self) -> 'Posit':
+        res = Posit(0, n=self.BITWIDTH)
+        res._bits = self._twos_complement(self._bits)
+        return res
 
 
     def __mul__(self, other: 'Posit') -> 'Posit':
         """
         Multiplies this Posit by another Posit.
+
+        Uses a unified-mantissa multiplication, meaning, components get massaed into:
+        P = Mantissa * 2^Scale
+
+        The Multiplication can then be rewritten as:
+        (Mantissa1 * 2^Scale1) * (Mantissa2 * 2^Scale2) = (Mantissa1 * Mantissa2) * 2^(Scale1 + Scale2)
         """
         if not isinstance(other, Posit):
             raise ValueError(f"__mul__: Expected Posit, got {type(other)}")
+        if self.BITWIDTH != other.BITWIDTH:
+            raise ValueError(f"Cannot multiply {self.BITWIDTH}-bit Posit with {other.BITWIDTH}-bit Posit!")
 
         # --- Handle Special Cases --- #
         if self.is_nar() or other.is_nar():
-            return Posit(self.nbits, float('nan'))
+            return Posit(float('nan'), n=self.BITWIDTH)
         if self.is_zero() or other.is_zero():
-            return Posit(self.nbits, 0.0)
+            return Posit(0.0, n=self.BITWIDTH)
 
         # --- Calculate components --- #
         s_self, r_self, e_self, f_self = self._get_components()
         s_other, r_other, e_other, f_other = other._get_components()
-        # TODO
 
+        # === Calculate Mantissa and Scale === #
+        f_len_self, f_len_other = len(f_self), len(f_other)
+        # --- Shift fraction string to left --- #
+        # Fraction currently is (1).XXX. Attach implicit one and interpret as without decimal point
+        mantissa_self = (1 << f_len_self) | (int(f_self, 2) if f_len_self > 0 else 0)
+        mantissa_other = (1 << f_len_other) | (int(f_other, 2) if f_len_other > 0 else 0)
+        # Build unified mantissa m = (4r + e) and deduct leftshift of fraction
+        scale_self = (r_self * 4 + e_self) - f_len_self
+        scale_other = (r_other * 4 + e_other) - f_len_other
+
+        # === Perform multiplication === #
+        mantissa = mantissa_self * mantissa_other
+        scale = scale_self + scale_other
+        sign = 1 if s_self != s_other else 0
+
+        # === Transform unified mantissa back into posit components === #
+        mantissa_len = mantissa.bit_length() - 1  # Deduct implicit 1
+        total_exponent = scale + mantissa_len  # Sum of scales + normalization shift
+        r = total_exponent >> 2  # div 4
+        e = total_exponent & 3   # mod 4
+        f_int = mantissa & ((1 << mantissa_len) - 1)  # Discard leading 1
+        f = format(f_int, f'0{mantissa_len}b') if mantissa_len > 0 else ""
+
+        res = Posit(0, n=self.BITWIDTH)
+        res._encode_compnents(sign, r, e, f)
+        return res
 
 
     @override
