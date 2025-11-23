@@ -285,13 +285,8 @@ class Posit:
         scale = scale_self + scale_other
         sign = 1 if s_self != s_other else 0
 
-        # === Transform unified mantissa back into posit components === #
-        mantissa_len = mantissa.bit_length() - 1  # Deduct implicit 1
-        total_exponent = scale + mantissa_len  # Sum of scales + normalization shift
-        r = total_exponent >> 2  # div 4
-        e = total_exponent & 3   # mod 4
-        f_int = mantissa & ((1 << mantissa_len) - 1)  # Discard leading 1
-        f = format(f_int, f'0{mantissa_len}b') if mantissa_len > 0 else ""
+        # --- Transform unified mantissa back into posit components --- #
+        r, e, f = self._posit_parts(mantissa, scale)
 
         res = Posit(0, n=self.BITWIDTH)
         res._encode_compnents(sign, r, e, f)
@@ -330,7 +325,7 @@ class Posit:
     def _unified_mantissa(r: int, e: int, f: str) -> tuple[int, int]:
         """
         Converts regime, exponent and fraction into mantissa and exponent:
-        1.f * 2^(4r + e) -> m * 2^r
+        1.f * 2^(4r + e) -> m * 2^s
 
         While the fraction part has an implicit leading 1., the mantissa is
         entirely displayed and interpreted as an integer without a decimal
@@ -351,4 +346,30 @@ class Posit:
         # Build unified mantissa (4r + e) and deduct leftshift of fraction
         s = (r * 4 + e) - f_len
         return m, s
+
+
+    @staticmethod
+    def _posit_parts(mantissa: int, scale: int) -> tuple[int, int, str]:
+        """
+        Converts a floating-point value composed of a mantissa and exponent
+        into posit regime, exponent and fraction representation:
+        m * 2^s -> 1.f * 2^(4r + e)
+
+        While the mantissa is interpreted as an integer value, the fraction has
+        an implicit 1 leading before the decimal point (1.f).
+
+        Args:
+            mantissa (int): An integer value
+            scale (int): Integer exponent over the base 2.
+
+        Returns:
+            r, e, f (tuple[int, int, str]): Posit components (except sign)
+        """
+        mantissa_len = mantissa.bit_length() - 1  # Deduct implicit 1
+        total_exponent = scale + mantissa_len  # Sum of scales + normalization shift
+        r = total_exponent >> 2  # div 4
+        e = total_exponent & 3   # mod 4
+        f_int = mantissa & ((1 << mantissa_len) - 1)  # Discard leading 1
+        f = format(f_int, f'0{mantissa_len}b') if mantissa_len > 0 else ""
+        return r, e, f
 
