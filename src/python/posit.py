@@ -64,6 +64,13 @@ class Posit:
         return self._bits == '1' + '0' * (self.BITWIDTH - 1)
 
 
+    def clone(self) -> 'Posit':
+        """Returns a deep copy of this instance."""
+        res = Posit(n=self.BITWIDTH)
+        res._bits = "".join(c for c in self._bits)
+        return res
+
+
     def _float_to_posit(self, value: float):
         """Converts a 64-bit float into a n-bit posit"""
         n: int  = self.BITWIDTH
