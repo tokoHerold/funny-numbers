@@ -251,6 +251,69 @@ class Posit:
         return res
 
 
+    def __add__(self, other: 'Posit') -> 'Posit':
+        """
+        Adds this Posit to another Posit.
+
+        Uses a unified-mantissa addition, meaning, components get massaged into:
+        P = Mantissa * 2^Scale
+
+        The Addition logic aligns the scales to the smaller common scale to preserve precision.
+        Given P1 = M1 * 2^S1 and P2 = M2 * 2^S2 where S1 > S2:
+        P1 becomes (M1 << (S1 - S2)) * 2^S2
+        Then P1 + P2 = ((M1 << (S1 - S2)) + M2) * 2^S2
+        """
+        if not isinstance(other, Posit):
+            raise ValueError(f"__add__: Expected Posit, got {type(other)}")
+        if self.BITWIDTH != other.BITWIDTH:
+            raise ValueError(f"Cannot add {self.BITWIDTH}-bit Posit with {other.BITWIDTH}-bit Posit!")
+
+        # --- Handle Special Cases ---
+        if self.is_nar() or other.is_nar():
+            return Posit(n=self.BITWIDTH, value=float('nan'))
+        if self.is_zero():
+            return other.clone()
+        if other.is_zero():
+            return self.clone()
+
+        # --- Calculate components --- #
+        s_self, r_self, e_self, f_self = self._get_components()
+        s_other, r_other, e_other, f_other = other._get_components()
+
+        # --- Calculate Mantissa and Scale --- #
+        mantissa_self, scale_self = self._unified_mantissa(r_self, e_self, f_self)
+        mantissa_other, scale_other = self._unified_mantissa(r_other, e_other, f_other)
+
+        # === Align to smaller, common scale === #
+        if scale_self > scale_other:
+            mantissa_self <<= (scale_self - scale_other)
+            scale = scale_other
+        else:
+            mantissa_other <<= (scale_other - scale_self)
+            scale = scale_self
+
+        # === Perform addition === #
+        if s_self == s_other:  # Same sign: Add magnitudes
+            mantissa = mantissa_self + mantissa_other
+            s = s_self
+        else:  # Different signs: Subtract magnitudes
+            if mantissa_self > mantissa_other:
+                mantissa = mantissa_self - mantissa_other
+                s = s_self
+            elif mantissa_other > mantissa_self:
+                mantissa = mantissa_other - mantissa_self
+                s = s_other
+            else:  # Exact cancellation
+                return Posit(n=self.BITWIDTH)
+
+        # --- Transform unified mantissa back into posit components --- #
+        r, e, f = self._posit_parts(mantissa, scale)
+
+        res = Posit(0, n=self.BITWIDTH)
+        res._encode_compnents(s, r, e, f)
+        return res
+
+
     def __mul__(self, other: 'Posit') -> 'Posit':
         """
         Multiplies this Posit by another Posit.

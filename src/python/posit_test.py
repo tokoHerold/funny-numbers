@@ -41,5 +41,21 @@ class PositTest(unittest.TestCase):
                 self.assertEqual(result, expected)
 
 
+    def test_addition(self):
+        nan = float('nan')
+        inf = float('inf')
+        test_cases = [
+            (Posit(1.5), Posit(2.0), Posit(3.5)),      # Positive * Positive
+            (Posit(-1.5), Posit(-2.0), Posit(-3.5)),    # Negative * Negative
+            (Posit(1.5), Posit(-2.0), Posit(-0.5)),    # Positive * Negative
+            (Posit(0), Posit(2.0), Posit(2.0)),          # Zero * Positive
+            (Posit(1.0), Posit(0), Posit(1.0)),          # Positive * Zero
+            (Posit(1.0), Posit(inf), Posit(nan)),      # Positive * NaR
+        ]
+
+        for a, b, expected in test_cases:
+            with self.subTest(a=a, b=b):
+                result = a + b
+                self.assertEqual(result, expected)
 if __name__ == "__main__":
     unittest.main()
