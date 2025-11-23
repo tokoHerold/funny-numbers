@@ -88,136 +88,6 @@ class Posit:
         return res
 
 
-    def _float_to_posit(self, value: float):
-        """Converts a 64-bit float into a n-bit posit"""
-        n: int  = self.BITWIDTH
-
-        # === Special Cases === #
-        # Special case #1: zero
-        if value == 0:
-            self._set_bits("0" * n)
-            return
-        # Special case #2: nar
-        if math.isnan(value) or math.isinf(value):
-            self._set_bits("1" + "0" * (n - 1))
-            return
-        # Special case #3: float >= MAX_POS
-        if value >= self.MAX_POS:
-            self._set_bits('0' + '1' * (n - 1))
-            return
-        if abs(value) <= self.MIN_POS:
-            self._set_bits('0' * (n - 1) + '1')
-            return
-
-        # === General Case === #
-        # Pack to IEEE 754 double (64-bit)
-        # [Sign (1)] [Exponent (11)] [Mantissa (52)]
-        packed = struct.pack('>d', value)  # '>d' means Big-Endian Double
-        float_bits = int.from_bytes(packed, 'big')
-        ieee754_sign = (float_bits) >> 63 & 1  # Sign bit
-
-        ieee754_exp = (float_bits >> 52) & 0x7FF  # (11 Bits)
-        ieee754_mantissa = float_bits & 0xF_FFFF_FFFF_FFFF  # (52 Bits)
-
-        # --- Extract Fraction (f) ---#
-        if ieee754_exp == 0:  # - Subnormal: (-1)^s * 0.mant * 2^-1022
-            # Normalize 0.mant to 1.f -> shift left until MSB is one
-            bit_len = ieee754_mantissa.bit_length() - 1  # Leading 1 search
-            total_exponent = bit_len - 1074  # 52 bits of fraction + 1022 exp
-
-            f_int = ieee754_mantissa & ((1 << bit_len) - 1) # Shift mantissa left until MSB is 1
-            f = format(f_int, f'0{bit_len}b') if bit_len > 0 else ""
-        else:  # ---------------- Normal: (-1)^s * 1.mant * 2^(exp - 1023)
-            total_exponent = ieee754_exp - 1023
-            f = format(ieee754_mantissa, '052b')
-
-        # --- Decompose total exponent into Regime (r) and Exponent (e) --- #
-        # total_exponent = 4r + e
-        r = total_exponent >> 2 # div 4
-        e = total_exponent & 3  # mod 4
-
-        # --- Encode parts into posit --- #
-        self._encode_compnents(ieee754_sign, r, e, f)
-
-
-    def _encode_compnents(self, s: int, r: int, e: int, f: str):
-        """
-        Encodes a Posit from its decoded components.
-
-        Args:
-            s (int): Sign (0 for positive, 1 for negative).
-            r (int): Regime value (numerical exponent of useed).
-            e (int): Exponent value (0-3).
-            f (str): Fraction bits.
-        """
-        assert (0 <= s < 2) and (0 <= e < 4)
-        n = self.BITWIDTH
-        bit_str = '0'
-
-        # === (n/n+x) bit Posit construction === #
-        if r >= 0:
-            k = r + 1
-            bit_str += '1' * k + '0'
-        else:
-            k = -r
-            bit_str += '0' * k + '1'
-        bit_str += format(e, '02b')  # Binary string of length 2
-        bit_str += f
-        if len(bit_str) <= n:  # Value can be expressed as n-bit posit
-            bit_str = bit_str.ljust(n, '0')
-        else:  # === Posit rounding === #
-            # Posit rounding works as follows:
-            # let v be the n+1 bit posit currently stored in `posit_bits`
-            # let u, w be the n bit posits, whose value surrounds v.
-            u = bit_str[:n]  # next smaller n-bit posit
-            # Because u, v and w have the same r, e incrementing u yields w.
-            # As v has n+1 bits, LSB decides whether u or w are nearer.
-            guard_bit = bit_str[n]  # n+1'th bit
-            lsb = u[-1]
-            above_midpoint = '1' in bit_str[n+1:]
-            if guard_bit == '1' and (above_midpoint or lsb == '1'):
-                # Above midpoint or round-to-even (Posit spec)
-                bit_str = self._increment_bits(u)  #round up (v)
-            else:
-                bit_str = u  # Round down
-
-        # === Apply sign bit === #
-        if s == 0:
-            self._set_bits(bit_str)
-        else:
-            self._set_bits(self._twos_complement(bit_str))
-
-
-    def _get_components(self) -> tuple[int, int, int, str]:
-        """
-        Decodes the posit components:
-            s (int): Sign (0 for positive, 1 for negative).
-            r (int): Regime value (numerical exponent of useed).
-            e (int): Exponent value (0-3).
-            f (str): Fraction bits.
-
-            Returns:
-                tuple[int, int, int, str] of the form (s, r, e, f).
-        """
-        n = self.BITWIDTH
-        bits = self._bits
-        # === Read sign bit (s) === #
-        s = 0 if self._bits[0] == '0' else 1
-        if s == 1:
-            bits = self._twos_complement(bits)
-        #  === Parse regime (r) === #
-        k = bits[1:].find('0' if bits[1] == '1' else '1')  # find run length
-        if k == -1: # Regime is whole posit
-            k = n-1
-        r = -k if bits[1] == '0' else k - 1
-        # === Read exponent (e) === #
-        remaining = bits[2 + k:] # Stored in next 2 bits (spec)
-        e = int(remaining[:2].ljust(2, '0'), 2)  # consider truncated exponent
-        # === Read fraction (f) === #
-        f = remaining[2:]
-        return s, r, e, f
-
-
     def to_float(self) -> float:
         """Converts the value of this posit into a IEEE 754 float"""
         if self.is_zero():  # Special case 1
@@ -380,6 +250,136 @@ class Posit:
     @override
     def __repr__(self) -> str:
         return f'Posit{self.BITWIDTH} ({self._bits})\n{self.to_float()}'
+
+
+    def _float_to_posit(self, value: float):
+        """Converts a 64-bit float into a n-bit posit"""
+        n: int  = self.BITWIDTH
+
+        # === Special Cases === #
+        # Special case #1: zero
+        if value == 0:
+            self._set_bits("0" * n)
+            return
+        # Special case #2: nar
+        if math.isnan(value) or math.isinf(value):
+            self._set_bits("1" + "0" * (n - 1))
+            return
+        # Special case #3: float >= MAX_POS
+        if value >= self.MAX_POS:
+            self._set_bits('0' + '1' * (n - 1))
+            return
+        if abs(value) <= self.MIN_POS:
+            self._set_bits('0' * (n - 1) + '1')
+            return
+
+        # === General Case === #
+        # Pack to IEEE 754 double (64-bit)
+        # [Sign (1)] [Exponent (11)] [Mantissa (52)]
+        packed = struct.pack('>d', value)  # '>d' means Big-Endian Double
+        float_bits = int.from_bytes(packed, 'big')
+        ieee754_sign = (float_bits) >> 63 & 1  # Sign bit
+
+        ieee754_exp = (float_bits >> 52) & 0x7FF  # (11 Bits)
+        ieee754_mantissa = float_bits & 0xF_FFFF_FFFF_FFFF  # (52 Bits)
+
+        # --- Extract Fraction (f) ---#
+        if ieee754_exp == 0:  # - Subnormal: (-1)^s * 0.mant * 2^-1022
+            # Normalize 0.mant to 1.f -> shift left until MSB is one
+            bit_len = ieee754_mantissa.bit_length() - 1  # Leading 1 search
+            total_exponent = bit_len - 1074  # 52 bits of fraction + 1022 exp
+
+            f_int = ieee754_mantissa & ((1 << bit_len) - 1) # Shift mantissa left until MSB is 1
+            f = format(f_int, f'0{bit_len}b') if bit_len > 0 else ""
+        else:  # ---------------- Normal: (-1)^s * 1.mant * 2^(exp - 1023)
+            total_exponent = ieee754_exp - 1023
+            f = format(ieee754_mantissa, '052b')
+
+        # --- Decompose total exponent into Regime (r) and Exponent (e) --- #
+        # total_exponent = 4r + e
+        r = total_exponent >> 2 # div 4
+        e = total_exponent & 3  # mod 4
+
+        # --- Encode parts into posit --- #
+        self._encode_compnents(ieee754_sign, r, e, f)
+
+
+    def _encode_compnents(self, s: int, r: int, e: int, f: str):
+        """
+        Encodes a Posit from its decoded components.
+
+        Args:
+            s (int): Sign (0 for positive, 1 for negative).
+            r (int): Regime value (numerical exponent of useed).
+            e (int): Exponent value (0-3).
+            f (str): Fraction bits.
+        """
+        assert (0 <= s < 2) and (0 <= e < 4)
+        n = self.BITWIDTH
+        bit_str = '0'
+
+        # === (n/n+x) bit Posit construction === #
+        if r >= 0:
+            k = r + 1
+            bit_str += '1' * k + '0'
+        else:
+            k = -r
+            bit_str += '0' * k + '1'
+        bit_str += format(e, '02b')  # Binary string of length 2
+        bit_str += f
+        if len(bit_str) <= n:  # Value can be expressed as n-bit posit
+            bit_str = bit_str.ljust(n, '0')
+        else:  # === Posit rounding === #
+            # Posit rounding works as follows:
+            # let v be the n+1 bit posit currently stored in `posit_bits`
+            # let u, w be the n bit posits, whose value surrounds v.
+            u = bit_str[:n]  # next smaller n-bit posit
+            # Because u, v and w have the same r, e incrementing u yields w.
+            # As v has n+1 bits, LSB decides whether u or w are nearer.
+            guard_bit = bit_str[n]  # n+1'th bit
+            lsb = u[-1]
+            above_midpoint = '1' in bit_str[n+1:]
+            if guard_bit == '1' and (above_midpoint or lsb == '1'):
+                # Above midpoint or round-to-even (Posit spec)
+                bit_str = self._increment_bits(u)  #round up (v)
+            else:
+                bit_str = u  # Round down
+
+        # === Apply sign bit === #
+        if s == 0:
+            self._set_bits(bit_str)
+        else:
+            self._set_bits(self._twos_complement(bit_str))
+
+
+    def _get_components(self) -> tuple[int, int, int, str]:
+        """
+        Decodes the posit components:
+            s (int): Sign (0 for positive, 1 for negative).
+            r (int): Regime value (numerical exponent of useed).
+            e (int): Exponent value (0-3).
+            f (str): Fraction bits.
+
+            Returns:
+                tuple[int, int, int, str] of the form (s, r, e, f).
+        """
+        n = self.BITWIDTH
+        bits = self._bits
+        # === Read sign bit (s) === #
+        s = 0 if self._bits[0] == '0' else 1
+        if s == 1:
+            bits = self._twos_complement(bits)
+        #  === Parse regime (r) === #
+        k = bits[1:].find('0' if bits[1] == '1' else '1')  # find run length
+        if k == -1: # Regime is whole posit
+            k = n-1
+        r = -k if bits[1] == '0' else k - 1
+        # === Read exponent (e) === #
+        remaining = bits[2 + k:] # Stored in next 2 bits (spec)
+        e = int(remaining[:2].ljust(2, '0'), 2)  # consider truncated exponent
+        # === Read fraction (f) === #
+        f = remaining[2:]
+        return s, r, e, f
 
 
     @staticmethod
