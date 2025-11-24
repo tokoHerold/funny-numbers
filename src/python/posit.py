@@ -63,6 +63,7 @@ class Posit:
             raise ValueError(value + " is not a float or string!")
 
 
+    # Always call this setter instead of accessing bits manually.
     def _set_bits(self, bits: str):
         if not set(bits).issubset({'0', '1'}):
             raise ValueError(f"Error: '{bits}' is not a binary string!")
@@ -102,41 +103,29 @@ class Posit:
         return float_val if s == 0 else -float_val
 
 
-    def __eq__(self, other: 'Posit') -> bool:
-        """
-        Tests if two posits are numerically equal.
-        Handles posits of different precisions (BITWIDTH).
-        """
-        if not isinstance(other, Posit):
-            return False
-
-        # === Special Cases === #
-        if self.is_nar() and other.is_nar():
-            return True # Posit spec
-        if self.is_zero() and other.is_zero():
-            return True
-        if self.is_nar() or other.is_nar():
-            return False
-
-        # === Compare Components === #
-        s1, r1, e1, f1 = self._get_components()
-        s2, r2, e2, f2 = other._get_components()
-
-        if s1 != s2 or r1 != r2 or e1 != e2:
-            return False
-
-        # === Compare Fractions === #
-        max_len = max(len(f1), len(f2)) # "1" (0.5) should equal "100" (0.500)
-        return f1.ljust(max_len, '0') == f2.ljust(max_len, '0')
-
-
-
+# Basic functions with one argument
+    @override
+    # Missing: round, ceil, floor, next, prior
     def __neg__(self) -> 'Posit':
         res = Posit(0, n=self.BITWIDTH)
         res._bits = self._twos_complement(self._bits)
         return res
 
 
+    @override
+    def __abs__(self) -> 'Posit':
+        return -self if self._bits[0] == '1' else self.clone()
+
+
+    def sign(p: 'Posit') -> 'Posit':
+        if p.is_zero():
+            return p.clone()
+        return Posit(-1, n=p.BITWIDTH) if p._bits[0] == '1' else Posit(1, n=p.BITWIDTH)
+
+
+# Arithmetic functions of two posit arguments
+# Missing: Division
+    @override
     def __add__(self, other: 'Posit') -> 'Posit':
         """
         Adds this Posit to another Posit.
@@ -200,6 +189,16 @@ class Posit:
         return res
 
 
+    @override
+    def __sub__(self, other: 'Posit') -> 'Posit':
+        if not isinstance(other, Posit):
+            raise ValueError(f"__sub__: Expected Posit, got {type(other)}")
+        if self.BITWIDTH != other.BITWIDTH:
+            raise ValueError(f"Cannot subtract {self.BITWIDTH}-bit Posit with {other.BITWIDTH}-bit Posit!")
+        return self + (-other)
+
+
+    @override
     def __mul__(self, other: 'Posit') -> 'Posit':
         """
         Multiplies this Posit by another Posit.
@@ -240,6 +239,71 @@ class Posit:
         res = Posit(0, n=self.BITWIDTH)
         res._encode_compnents(sign, r, e, f)
         return res
+
+
+# Comparison functions of two posit arguments
+    @override
+    def __eq__(self, other: 'Posit') -> bool:
+        """
+        Tests if two posits are numerically equal.
+        Handles posits of different precisions (BITWIDTH).
+        """
+        if not isinstance(other, Posit):
+            return False
+
+        # === Special Cases === #
+        if self.is_nar() and other.is_nar():
+            return True # Posit spec
+        if self.is_zero() and other.is_zero():
+            return True
+        if self.is_nar() or other.is_nar():
+            return False
+
+        # === Compare Components === #
+        s1, r1, e1, f1 = self._get_components()
+        s2, r2, e2, f2 = other._get_components()
+
+        if s1 != s2 or r1 != r2 or e1 != e2:
+            return False
+
+        # --- Compare Fractions --- #
+        max_len = max(len(f1), len(f2)) # "1" (0.5) should equal "100" (0.500)
+        return f1.ljust(max_len, '0') == f2.ljust(max_len, '0')
+
+
+    @override
+    def __lt__(self, other: 'Posit') -> bool:
+        if not isinstance(other, Posit):
+            return False
+
+        # === Special Cases === #
+        if self.is_nar() or other.is_nar():
+            return False  # NaR is not less than NaR
+
+        # === Compare Components === #
+        s1, r1, e1, f1 = self._get_components()
+        s2, r2, e2, f2 = other._get_components()
+
+        if s1 != s2:  # If signs are different, decision stands
+            return True if s1 == 1 else False
+
+        if s1 == 1:  # Swap arguments
+             r1, e1, f1, r2, e2, f2 = r2, e2, f2, r1, e1, f1
+
+        # -- Hierarchical Comparison (Regime -> Exponent -> Fraction) --- #
+        if r1 != r2:
+            return r1 < r2
+        if e1 != e2:
+            return e1 < e2
+
+        # --- Compare Fractions --- #
+        max_len = max(len(f1), len(f2))  # "1" (0.5) should be less than "100" (0.500)
+        return f1.ljust(max_len, '0') < f2.ljust(max_len, '0')
+
+
+    @override
+    def __le__(self, other: 'Posit'):
+        return self < other or self == other
 
 
     @override
