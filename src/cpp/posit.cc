@@ -1,5 +1,6 @@
 #include "posit.h"
 
+#include <algorithm>
 #include <bit>
 #include <cassert>
 #include <cmath>
@@ -100,7 +101,8 @@ double Posit<N>::to_double() {
 		return NAN;
 	}
 	auto [r, e, f] = get_components();
-	auto tmp = static_cast<double>(1ll << (BITS - std::countl_zero(f)));
+	int shift = (BITS - std::countl_zero(f));
+	auto tmp = static_cast<double>(1ll << shift);
 	double d = static_cast<double>(f) / tmp;
 	d = (1.0 + d) * std::pow(2.0, 4.0 * r + e);
 	return get_sign_bit() ? -d : d;
@@ -113,207 +115,77 @@ static void set_and_round(Posit<N>& posit, int s, int r, int e, typename Posit<N
 	set_and_round_impl<N, U>(posit, s, r, e, f);
 }
 
+template <int N>
+constexpr typename Posit<N>::storage_t increment(typename Posit<N>::storage_t val) {
+	return ++val & Posit<N>::MASK;
+}
+
+template <int N>
+constexpr typename Posit<N>::storage_t twos_complement(typename Posit<N>::storage_t val) {
+	return ((~val) + 1) & Posit<N>::MASK;
+}
+
 /**
  * @brief Primary logic implementation.
  * Expects N (Posit Width) to match U (Storage Width) exactly.
  * Used for N = 8, 16, 32, 64.
+ *
+ * @param posit: Reference to the posit value
+ * @param s: Sign bit, either 0 or 1
+ * @param r: regime exponent
+ * @param e: exponent, must be between 0 and 3
+ * @param f: right-aligned fraction bits, so that the MSB is at position N-1<br>
+ *           Example (32 bit): 0.625 | 31 31 30 29 28 ... 0 |<br>
+ *                                   |  1  0  1  0  0 ... 0 |
  */
 template <int N, typename U>
 static void set_and_round_impl(Posit<N>& posit, int s, int r, int e, U f) {
 	// This implementation assumes the storage container fits the data exactly
 	// to allow for native overflow behavior (simulating modulo arithmetic).
-	static_assert(N == std::numeric_limits<U>::digits, "Primary impl requires N == BITS");
 
 	assert(0 <= e && e < 4);
 	assert(0 <= s && s < 2);
 
-	constexpr int BITS = N;
-	constexpr U ONE = static_cast<U>(1);
+	constexpr int BITS = std::numeric_limits<U>::digits;
+	constexpr U ONE = static_cast<U>(1) << (BITS - 1);  // Leading one
 	constexpr U ALL_ONES = ~static_cast<U>(0);
-
-	// Size of posit: | S | regime | exponent | fraction
-	//       in bits: | 1 | k + 1  |     2    |    m
-	int64_t k = (r >= 0) ? static_cast<int64_t>(r) + 1 : -static_cast<int64_t>(r);
-	int m = (f == 0) ? 0 : BITS - std::countr_zero(f);
-
-	U u = 0;  // u: N-Bit posit storage
-
-	// --- Fast Path: Exact Fit ---
-	if (k + m + 4 <= N) {                                 // (1 + k+1 + 2 + m <= N)
-		U regime_bits = (r >= 0) ? ((ONE << k) - 1) << 1  // 111...10
-		                         : ONE;                   // 000...01
-
-		u |= regime_bits << (N - k - 2);
-		u |= static_cast<U>(e) << (N - k - 4);
-		if (m > 0) u |= f << (N - k - m - 4);
-	}
-	// --- General Path: Rounding ---
-	else {
-		U posit_v = 0;        // N+1 bit posit buffer (LSB is Guard, MSB is Regime Start)
-		int pos = N - 1;      // Pointer to next unused space
-		bool sticky = false;  // Determines whether N+1 Posit is above midpoint between two neighbouring N-Bit posits
-
-		// |regime |exponent|fraction|
-		//  ^
-		// pos
-		if (r >= 0) {  // Place Regime
-			if (k >= N) {
-				posit_v = ALL_ONES;
-				pos = -1;                  // No space left
-				if (k > N) sticky = true;  // Implicit 1s continue -> Above midpoint
-			} else {
-				U ones = (ONE << k) - 1;
-				posit_v |= ones << (pos - k + 1);
-				pos -= (k + 1);
-			}
-		} else {
-			if (k >= N) {                  // All zeros
-				pos = -1;                  // No space left
-				if (k > N) sticky = true;  // Terminator 1 shifted out -> Above midpoint
-			} else {
-				pos -= k;
-				posit_v |= (ONE << pos);
-				pos -= 1;
-			}
-		}
-		// |regime|exponent|fraction
-		//         ^
-		//        pos
-		if (pos >= 0) {      // Place Exponent
-			if (pos >= 1) {  // Enough space to place entire exponent
-				posit_v |= static_cast<U>(e) << (pos - 1);
-				pos -= 2;
-			} else {                                // pos == 0, can only place MSB of exponent
-				posit_v |= static_cast<U>(e >> 1);  // Place at bit 0 (Guard position)
-				if (e & 1) sticky = true;           // LSB of exponent lost
-				pos -= 1;
-			}
-		} else {                        // Cannot place exponent
-			if (e != 0) sticky = true;  // If exponent is not 0 -> above midpoint
-		}
-		// |regime|exponent|fraction
-		//                 ^
-		//                 pos
-		if (pos >= 0 && m > 0) {  // Place Fraction (if it is not empty)
-			if (m <= pos + 1) {   // fraction fits exactly into the remaining space
-				posit_v |= f << (pos - m + 1);
-			} else {  // Truncate fraction
-				int shift = BITS - (pos + 1);
-				posit_v |= f >> shift;
-				if ((f & ((ONE << shift) - 1)) != 0) sticky = true;
-			}
-		} else if (m > 0) {
-			sticky = true;
-		}
-		// Rounding
-		bool guard = (posit_v & 1);
-		bool lsb = (posit_v & 2);
-		if (guard && (sticky || lsb) && posit_v != ALL_ONES) posit_v++;  // Round up
-		u = posit_v >> 1;                                                // Make space for sign
-	}
-	if (s == 1) u = -u;  // Apply Sign
-	posit.bits = u;
-}
-
-/**
- * @brief Specialization for Posit4 (N=4, U=uint8_t).
- * Handles N < BITS mismatch requiring masking.
- */
-template <>
-void set_and_round_impl<4, uint8_t>(Posit<4>& posit, int s, int r, int e, uint8_t f) {
-	constexpr int N = 4;
-	using U = uint8_t;
-	constexpr U MASK = 0x0F;  // Low 4 bits
-
-	assert(0 <= e && e < 4);
-	assert(0 <= s && s < 2);
+	r = std::clamp(r, -BITS, BITS - 1);
 
 	int64_t k = (r >= 0) ? static_cast<int64_t>(r) + 1 : -static_cast<int64_t>(r);
-	int m = (f == 0) ? 0 : 8 - std::countl_zero(f);
+	U regime_bits = r >= 0                        // Encode r in unary:
+	                    ? ALL_ONES << (BITS - k)  // '1' * k + '0' (right aligned)
+	                    : ONE >> k;               // '0' * k + '1' (right aligned)
 
-	U u = 0;
+	U posit_u{0};  // N bit posit
+	// Posit u: | S | regime | exponent | fraction
+	//    bits: | 1 | k + 1  |     2    |    m
 
-	// General Path (Fast path mathematically impossible for N=4 due to k+m+4 > 4)
-	U posit_v = 0;
-	int pos = N - 1;
-	bool sticky = false;
+	U posit_v{0};  // N+1 bit posit buffer (LSB is Guard, MSB is Regime Start)
+	// Posit v: | regime | exponent | fraction
+	//    bits: | k + 1  |     2    |    m
+	posit_v |= regime_bits;
+	posit_v |= static_cast<U>(e) << (BITS - k - 3);
+	posit_v |= f >> (k + 3);              // k+1 (regime) + 2 (exponent)
+	posit_u = posit_v >> (1 + BITS - N);  // Make space for sign
 
-	// |regime |exponent|fraction|
-	//  ^
-	// pos
-	if (r >= 0) {  // Place Regime
-		if (k >= N) {
-			posit_v = MASK;
-			pos = -1;
-			if (k > N) sticky = true;
-		} else {
-			U ones = (1 << k) - 1;
-			posit_v |= ones << (pos - k + 1);
-			pos -= (k + 1);
-		}
-	} else {
-		if (k >= N) {
-			pos = -1;
-			if (k > N) sticky = true;
-		} else {
-			pos -= k;
-			posit_v |= (1 << pos);
-			pos -= 1;
+	// Check if rounding up is required
+	constexpr U LSB_SELECTOR = ONE >> (BITS - 2);
+	constexpr U GUARD_SELECTOR = ONE >> (BITS - 1);
+	bool lsb = (posit_v & LSB_SELECTOR) > 0;
+	bool guard = (posit_v & GUARD_SELECTOR) > 0;
+	if (guard) {  // Might be above midpoint
+		if (lsb || (f << (k + 3)) != 0 || (e >> std::max((3 - BITS + k), 0l)) != 0) {
+			// If lsb != 0: Round to next even posit
+			// If any of the bits in the clipped bitstring is 1: Round up
+			posit_u = increment<N>(posit_u);
 		}
 	}
-
-	// |regime|exponent|fraction
-	//         ^
-	//        pos
-	if (pos >= 0) {  // Place Exponent
-		if (pos >= 1) {
-			posit_v |= static_cast<U>(e) << (pos - 1);
-			pos -= 2;
-		} else {
-			posit_v |= static_cast<U>(e >> 1) << pos;
-			if (e & 1) sticky = true;
-			pos -= 1;
-		}
-	} else {
-		if (e != 0) sticky = true;
-	}
-
-	// |regime|exponent|fraction
-	//                 ^
-	//                 pos
-	if (pos >= 0 && m > 0) {  // Place Fraction
-		if (m <= pos + 1) {
-			posit_v |= f << (pos - m + 1);
-		} else {
-			int shift = m - (pos + 1);
-			posit_v |= f >> shift;
-			if ((f & ((1 << shift) - 1)) != 0) sticky = true;
-		}
-	} else if (m > 0) {
-		sticky = true;
-	}
-
-	// Rounding
-	bool guard = (posit_v & 1);
-	bool lsb = (posit_v & 2);
-
-	if (guard && (sticky || lsb)) {
-		if (posit_v != MASK) {
-			posit_v++;
-		}
-	}
-
-	u = posit_v >> 1;
-
-	// Apply Sign
-	if (s == 1) {
-		u = ((~u) + 1) & MASK;
-	} else {
-		u &= MASK;
-	}
-
-	posit.bits = u;
+	// int pos = N - 1;      // Pointer to next unused space
+	// bool above_midpoint{false};
+	if (s == 1) posit_u = twos_complement<N>(posit_u);  // Apply Sign
+	posit.bits = posit_u;
 }
+
 
 // Explicitly instantiate for N=64 so the linker can find it
 template struct Posit<64>;
