@@ -330,7 +330,7 @@ class Posit:
             self._set_bits("1" + "0" * (n - 1))
             return
         # Special case #3: float >= MAX_POS
-        if value >= self.MAX_POS:
+        if abs(value) >= self.MAX_POS:
             self._set_bits('0' + '1' * (n - 1))
             return
         if abs(value) <= self.MIN_POS:
