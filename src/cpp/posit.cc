@@ -61,6 +61,20 @@ constexpr std::strong_ordering Posit<N>::operator<=>(const Posit& other) const {
 	}
 }
 
+/**
+ * @brief Decodes the posit into its components: regime, exponent, and fraction.
+ *
+ * This function extracts the internal components of the posit value.
+ * It handles negative values by taking the absolute value (two's complement)
+ * before decoding.
+ *
+ * @tparam N The bit width of the posit.
+ * @return A tuple containing:
+ * - int r: The regime value.
+ * - int e: The exponent value.
+ * - storage_t f: The fraction bits. The fraction is returned right-aligned
+ * in the integer container. Leading zeros are significant and implicit.
+ */
 template <int N>
 std::tuple<int, int, typename Posit<N>::storage_t> Posit<N>::get_components() const {
 	constexpr int BITS = std::numeric_limits<storage_t>::digits;
@@ -82,18 +96,13 @@ std::tuple<int, int, typename Posit<N>::storage_t> Posit<N>::get_components() co
 	if (k + 1 >= BITS) return {r, e, f};
 	scratch <<= (k + 1);  // Shift out regime
 	e = static_cast<int>(scratch >> (BITS - 2));
-	scratch <<= 2;                        // Shift out exponent
-	int bits_consumed = 1 + (k + 1) + 2;  // Sign + Regime + Exp
-	int frac_len = N - bits_consumed;
-	if (frac_len > 0) {
-		f = scratch >> (BITS - frac_len);
-	}
+	scratch <<= 2;  // Shift out exponent
+	f = scratch;
 	return {r, e, f};
 }
 
 template <int N>
 double Posit<N>::to_double() {
-	constexpr int BITS = std::numeric_limits<storage_t>::digits;
 	if (bits == 0) {
 		return +0;
 	}
@@ -101,9 +110,8 @@ double Posit<N>::to_double() {
 		return NAN;
 	}
 	auto [r, e, f] = get_components();
-	int shift = (BITS - std::countl_zero(f));
-	auto tmp = static_cast<double>(1ll << shift);
-	double d = static_cast<double>(f) / tmp;
+	auto tmp = static_cast<double>(1ll << (N - 1));
+	double d = static_cast<double>(f >> 1) / tmp;
 	d = (1.0 + d) * std::pow(2.0, 4.0 * r + e);
 	return get_sign_bit() ? -d : d;
 }
@@ -185,7 +193,6 @@ static void set_and_round_impl(Posit<N>& posit, int s, int r, int e, U f) {
 	if (s == 1) posit_u = twos_complement<N>(posit_u);  // Apply Sign
 	posit.bits = posit_u;
 }
-
 
 // Explicitly instantiate for N=64 so the linker can find it
 template struct Posit<64>;
