@@ -115,8 +115,8 @@ double Posit<N>::to_double() {
 		return NAN;
 	}
 	auto [r, e, f] = get_components();
-	auto tmp = static_cast<double>(1ll << (N - 1));
-	double d = static_cast<double>(f >> 1) / tmp;
+	auto tmp = static_cast<double>(1ll << (N - 2)); // Make sure enough space left to cast to double
+	double d = static_cast<double>(f >> 2) / tmp;   // No precision is lost, as sign+regime takes at least 3 bits 
 	d = (1.0 + d) * std::pow(2.0, 4.0 * r + e);
 	return get_sign_bit() ? -d : d;
 }
