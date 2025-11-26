@@ -45,8 +45,13 @@ Posit<N>::Posit(double d) : bits(0) {
 		total_exponent = exponent - 1023;
 	}
 	constexpr int STORAGE_BITS = sizeof(storage_t) * 8;
-	auto shift = std::max(frac_len - STORAGE_BITS, 0);
-	auto clipped_fraction = static_cast<storage_t>(fraction >> shift);
+	int shift = frac_len - STORAGE_BITS;
+	storage_t clipped_fraction;
+	if (shift >= 0) {
+		clipped_fraction = fraction >> shift;
+	} else {
+		clipped_fraction = fraction << abs(shift);
+	}
 	set_and_round(*this, (float_bits >> 63), total_exponent >> 2, total_exponent & 3, clipped_fraction);
 }
 
