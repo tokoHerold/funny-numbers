@@ -115,8 +115,8 @@ double Posit<N>::to_double() {
 		return NAN;
 	}
 	auto [r, e, f] = get_components();
-	auto tmp = static_cast<double>(1ll << (N - 2)); // Make sure enough space left to cast to double
-	double d = static_cast<double>(f >> 2) / tmp;   // No precision is lost, as sign+regime takes at least 3 bits 
+	auto tmp = static_cast<double>(1ll << (N - 2));  // Make sure enough space left to cast to double
+	double d = static_cast<double>(f >> 2) / tmp;    // No precision is lost, as sign+regime takes at least 3 bits
 	d = (1.0 + d) * std::pow(2.0, 4.0 * r + e);
 	return get_sign_bit() ? -d : d;
 }
@@ -186,10 +186,10 @@ static void set_and_round_impl(Posit<N>& posit, int s, int r, int e, U f) {
 	constexpr U GUARD_SELECTOR = ONE >> (BITS - 1);
 	bool lsb = (posit_v & LSB_SELECTOR) > 0;
 	bool guard = (posit_v & GUARD_SELECTOR) > 0;
-	if (guard) {  // Might be above midpoint
-		if (lsb || (f << (k + 3)) != 0 || (e >> std::max((3 - BITS + k), 0l)) != 0) {
-			// If lsb != 0: Round to next even posit
-			// If any of the bits in the clipped bitstring is 1: Round up
+	if (guard) {                                                // Might be above midpoint
+		if (lsb                                                 // If lsb != 0: Round to next even posit
+		    || (((static_cast<U>(1) << (k + 3)) - 1) & f) != 0  // If any precision in the fraction was lost
+		    || (e >> std::max((BITS - k - 3), 0l)) != 0) {      // If any precision in the exponent was lost
 			posit_u = increment<N>(posit_u);
 		}
 	}
