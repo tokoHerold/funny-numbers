@@ -6,8 +6,6 @@
 #include <iostream>
 #include <type_traits>
 
-#define NAR Posit<N>{static_cast<typename Posit<N>::storage_t>(1ll << (N-1))}
-
 /**
  * @brief Automatically selects the smallest standard integer type that fits
  * NBITS.
@@ -63,11 +61,11 @@ struct Posit {
 	static constexpr int ES = 2;
 
 	using storage_t = typename PositStorage<N>::type;
-	using signed_storage_t = typename std::make_signed<storage_t>::type;
+	using sstorage_t = typename std::make_signed<storage_t>::type;
 
 	union {
 		storage_t bits;          // Underlying bits, unsigned
-		signed_storage_t sbits;  // Underlying bits, signed
+		sstorage_t sbits;  // Underlying bits, signed
 	};
 
 	/**
@@ -123,7 +121,11 @@ struct Posit {
 	Posit operator*(const Posit& other) const;
 
 	// --- Functions ---
-	constexpr bool get_sign_bit() const { return bits & (static_cast<storage_t>(1) << (N - 1)); }
+	/*
+	 * @brief Returns a posit representing the Not-a-Real (NaR) value.
+	 */
+	constexpr inline Posit nar() const { return Posit<N>{static_cast<typename Posit<N>::storage_t>(1ll << (N - 1))}; }
+	constexpr inline bool get_sign_bit() const { return (bits & (static_cast<storage_t>(1) << (N - 1))) != static_cast<storage_t>(0); }
 	double to_double();
 	std::tuple<int, int, storage_t> get_components() const;
 

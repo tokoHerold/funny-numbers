@@ -16,7 +16,8 @@ Posit<N>::Posit(double d) : bits(0) {
 	/* === Special Cases === */
 	if (d == 0) return;  // Zero
 	if (d == NAN || d == INFINITY || d == -INFINITY) {
-		bits |= 1ull << n_;  // Not a Real (NaR)
+		// bits |= 1ull << n_;  // Not a Real (NaR)
+		*this = nar();
 		return;
 	}
 	if (std::abs(d) >= MAX_POS) {
@@ -60,11 +61,78 @@ constexpr std::strong_ordering Posit<N>::operator<=>(const Posit& other) const {
 	if constexpr (SHIFT_ALIGN == 0) {  // Optimization for standard sizes (8, 16, 32, 64)
 		return sbits <=> other.sbits;
 	} else {  // For non-standard sizes, shift left to align sign bit, then compare.
-		auto lhs = static_cast<signed_storage_t>(bits << SHIFT_ALIGN);
-		auto rhs = static_cast<signed_storage_t>(other.bits << SHIFT_ALIGN);
+		auto lhs = static_cast<sstorage_t>(bits << SHIFT_ALIGN);
+		auto rhs = static_cast<sstorage_t>(other.bits << SHIFT_ALIGN);
 		return lhs <=> rhs;
 	}
 }
+
+template <int N>
+Posit<N> Posit<N>::operator*(const Posit<N>& other) const {
+	constexpr int BITS = std::numeric_limits<storage_t>::digits;
+	constexpr storage_t MSB_MASK = static_cast<storage_t>(1) << (BITS - 1);
+
+	if (bits == 0 || other.bits == 0) return Posit<N>(0.0);
+	if (*this == nar() || other == nar()) return nar();
+
+	auto [r1, e1, f1] = this->get_components();
+	auto [r2, e2, f2] = other.get_components();
+
+	int s_res = (this->get_sign_bit() ^ other.get_sign_bit());
+
+	// Formula:
+	// P = (1.f1 * 2^E1) * (1.f2 * 2^E2)
+	// Exp = (4r1 + e1) + (4r2 + e2)
+	sstorage_t exp_res = (static_cast<sstorage_t>(4) * r1 + e1) + (4 * e2);
+
+	// Attach implicit 1 to mantissas
+	constexpr storage_t MSB_1 = static_cast<storage_t>(1) << (BITS - 1);
+	storage_t m1 = MSB_1 | (f1 >> 1);
+	storage_t m2 = MSB_1 | (f2 >> 1);
+
+	// Multiply Mantissas: m1 * m2
+	// Perform (sizeof(storage_t)*2)-bit multiplication 'in-place'
+	constexpr int H = BITS / 2;
+	constexpr storage_t LOW_MASK = (static_cast<storage_t>(1) << H) - 1;
+
+	// (m1_up * H + m1_low) * (m2_up * H + m2_low) =
+	//      (m1_low * m2_low)     % Ignored, precision will be lost anyway
+	//    + (m1_low * m2_up * H)  % p_mid1
+	//    + (m2_low * m1_up * H)  % p_mid2
+	//    + (m1_up * m2_up)       % p_upper
+	storage_t m1_lo = m1 & LOW_MASK;
+	storage_t m1_up = m1 >> H;
+	storage_t m2_lo = m2 & LOW_MASK;
+	storage_t m2_up = m2 >> H;
+
+	storage_t p_mid1 = m1_lo * m2_up;
+	storage_t p_mid2 = m1_up * m2_lo;
+	storage_t p_upper = m1_up * m2_up;
+
+	storage_t p_mid = p_mid1 + p_mid2; // Check if this statement overflows
+	storage_t mid_carry = (p_mid < p_mid1) ? (static_cast<storage_t>(1) << H) : 0;
+
+	storage_t m_prod = p_upper + (p_mid >> H) + mid_carry;
+
+	// Normalize
+	if ((m_prod & MSB_MASK) == 0) {
+		m_prod <<= 1;
+	} else {
+		exp_res++;
+	}
+
+	storage_t f_final = m_prod & (~MSB_MASK);
+
+	int r_final = exp_res >> 2;
+	int e_final = exp_res & 3;
+
+	Posit<N> result;
+	set_and_round(result, s_res, static_cast<int>(r_final), static_cast<int>(e_final), f_final);
+	return result;
+}
+
+// template<int N>
+// constexpr
 
 /**
  * @brief Decodes the posit into its components: regime, exponent, and fraction.
@@ -111,7 +179,7 @@ double Posit<N>::to_double() {
 	if (bits == 0) {
 		return +0;
 	}
-	if (*this == NAR) {
+	if (*this == nar()) {
 		return NAN;
 	}
 	auto [r, e, f] = get_components();
@@ -144,7 +212,7 @@ constexpr typename Posit<N>::storage_t twos_complement(typename Posit<N>::storag
  * Used for N = 8, 16, 32, 64.
  *
  * @param posit: Reference to the posit value
- * @param s: Sign bit, either 0 or 1
+ * @param s: Sign bit, either false for 0 or true for 1
  * @param r: regime exponent
  * @param e: exponent, must be between 0 and 3
  * @param f: right-aligned fraction bits, so that the MSB is at position N-1<br>
@@ -152,12 +220,11 @@ constexpr typename Posit<N>::storage_t twos_complement(typename Posit<N>::storag
  *                                   |  1  0  1  0  0 ... 0 |
  */
 template <int N, typename U>
-static void set_and_round_impl(Posit<N>& posit, int s, int r, int e, U f) {
+static void set_and_round_impl(Posit<N>& posit, bool s, int r, int e, U f) {
 	// This implementation assumes the storage container fits the data exactly
 	// to allow for native overflow behavior (simulating modulo arithmetic).
 
 	assert(0 <= e && e < 4);
-	assert(0 <= s && s < 2);
 
 	constexpr int BITS = std::numeric_limits<U>::digits;
 	constexpr U ONE = static_cast<U>(1) << (BITS - 1);  // Leading one
@@ -182,9 +249,8 @@ static void set_and_round_impl(Posit<N>& posit, int s, int r, int e, U f) {
 	posit_u = posit_v >> (1 + BITS - N);  // Make space for sign
 
 	// Check if rounding up is required
-	constexpr U LSB_SELECTOR = ONE >> (BITS - 2);
-	constexpr U GUARD_SELECTOR = ONE >> (BITS - 1);
-	bool lsb = (posit_v & LSB_SELECTOR) > 0;
+	constexpr U GUARD_SELECTOR = ONE >> (N - 1);
+	bool lsb = (posit_u & static_cast<U>(1)) > 0;
 	bool guard = (posit_v & GUARD_SELECTOR) > 0;
 	if (guard) {                                                // Might be above midpoint
 		if (lsb                                                 // If lsb != 0: Round to next even posit
@@ -195,7 +261,7 @@ static void set_and_round_impl(Posit<N>& posit, int s, int r, int e, U f) {
 	}
 	// int pos = N - 1;      // Pointer to next unused space
 	// bool above_midpoint{false};
-	if (s == 1) posit_u = twos_complement<N>(posit_u);  // Apply Sign
+	if (s) posit_u = twos_complement<N>(posit_u);  // Apply Sign
 	posit.bits = posit_u;
 }
 
