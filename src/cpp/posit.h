@@ -1,13 +1,12 @@
 #pragma once
 
 #include <bitset>
-#include <cmath>
 #include <compare>
 #include <cstdint>
-#include <cstdio>
 #include <iostream>
-#include <limits>
 #include <type_traits>
+
+#define NAR Posit<N>{static_cast<typename Posit<N>::storage_t>(1ll << (N-1))}
 
 /**
  * @brief Automatically selects the smallest standard integer type that fits
@@ -76,7 +75,7 @@ struct Posit {
 	 */
 	static constexpr storage_t MASK =
 	    (N == 8 * sizeof(storage_t)) ? static_cast<storage_t>(~0) : (static_cast<storage_t>(1) << N) - 1;
-	static constexpr Posit NAR = Posit(static_cast<uint64_t>(1) << (N - 1));
+	// static constexpr Posit NAR{static_cast<storage_t>(1ll << (N - 1))};
 
 	/**
 	 * @brief The shift amount needed to align the Posit's sign bit with the storage MSB.
@@ -88,11 +87,16 @@ struct Posit {
 	 */
 	constexpr Posit() : bits(0) {}
 
+	/*
+	 * @brief Copy constructor.
+	 */
+	constexpr Posit(const Posit& other) : bits(other.bits) {}
+
 	/**
 	 * @brief Construct from raw bits.
 	 * @param raw_bits The integer representation of the bits.
 	 */
-	constexpr explicit Posit(uint64_t raw_bits) : bits(raw_bits & MASK) {}
+	constexpr explicit Posit(storage_t raw_bits) : bits(raw_bits & MASK) {}
 
 	/**
 	 * @brief Construct from double.
@@ -103,9 +107,18 @@ struct Posit {
 	explicit Posit(double d);
 
 	// --- Operator Overloading ---
+	constexpr Posit& operator=(const Posit& other) {
+		bits = other.bits;
+		return *this;
+	}
 	constexpr bool operator==(const Posit& other) const { return bits == other.bits; }
 	constexpr std::strong_ordering operator<=>(const Posit& other) const;
-	Posit operator-() const { return Posit(static_cast<uint64_t>((~bits) + 1) & MASK); }
+	constexpr Posit operator-() const {
+		if constexpr (sizeof(storage_t) == N) {
+			return Posit<N>{static_cast<storage_t>((~bits) + 1)};
+		}
+		return Posit<N>{static_cast<storage_t>(((~bits) + 1) & MASK)};
+	}
 	Posit operator+(const Posit& other) const;
 	Posit operator*(const Posit& other) const;
 
@@ -126,10 +139,15 @@ struct Posit {
 };
 
 using Posit64 = Posit<64>;
+static_assert(sizeof(Posit64) == 8, "Size of Posit64 is not 8");
 using Posit32 = Posit<32>;
+static_assert(sizeof(Posit32) == 4, "Size of Posit32 is not 4");
 using Posit16 = Posit<16>;
+static_assert(sizeof(Posit16) == 2, "Size of Posit16 is not 2");
 using Posit8 = Posit<8>;
+static_assert(sizeof(Posit8) == 1, "Size of Posit8 is not 1");
 using Posit4 = Posit<4>;
+static_assert(sizeof(Posit4) == 1, "Size of Posit4 is not 1");
 
 // // ==========================================
 // // 4. Packed Storage Utilities
