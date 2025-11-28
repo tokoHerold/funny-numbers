@@ -356,11 +356,12 @@ static void set_and_round_impl(Posit<N>& posit, bool s, int r, int e, U f) {
 
 	// Check if rounding up is required
 	constexpr U GUARD_SELECTOR = ONE >> (N - 1);
+	constexpr int SHIFT = BITS - N;
 	bool lsb = (posit_u & static_cast<U>(1)) > 0;
 	bool guard = (posit_v & GUARD_SELECTOR) > 0;
 	if (guard) {                                                // Might be above midpoint
 		if (lsb                                                 // If lsb != 0: Round to next even posit
-		    || (((static_cast<U>(1) << (k + 3)) - 1) & f) != 0  // If any precision in the fraction was lost
+		    || (((static_cast<U>(1) << (SHIFT + k + 3)) - 1) & f) != 0  // If any precision in the fraction was lost
 		    || (e >> std::max((BITS - k - 3), 0l)) != 0) {      // If any precision in the exponent was lost
 			posit_u = increment<N>(posit_u);
 		}
