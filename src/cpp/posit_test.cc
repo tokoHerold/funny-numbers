@@ -149,12 +149,40 @@ void test_multiplication_edge() {
 	std::cout << " ✓" << std::endl;
 }
 
+void test_addition() {
+	std::cout << "=== Test addition cases ===" << std::endl;
+	std::cout << "\tTesting -1.337 + 1.337" << std::flush;
+	assert_eq((Posit4(1.337) + Posit4(-1.337)).to_double(), 0.0);
+	assert_eq((Posit8(-1.337) + Posit8(1.337)).to_double(), 0.0);
+	assert_eq((Posit16(1.337) + Posit16(-1.337)).to_double(), 0.0);
+	assert_eq((Posit32(-1.337) + Posit32(1.337)).to_double(), 0.0);
+	assert_eq((Posit64(1.337) + Posit64(-1.337)).to_double(), 0.0);
+	std::cout << " ✓" << std::endl;
+
+	std::cout << "\tTesting 1.3 + 2.5" << std::flush;
+	assert_eq((Posit4(1.3) + Posit4(2.5)).to_double(), 4.0);
+	assert_eq((Posit8(1.3) + Posit8(2.5)).to_double(), 3.75);
+	assert_eq((Posit16(1.3) + Posit16(2.5)).to_double(), 3.7998046875);
+	assert_eq((Posit32(1.3) + Posit32(2.5)).to_double(), 3.7999999970197678);
+	assert_eq((Posit64(1.3) + Posit64(2.5)).to_double(), 3.8);
+	std::cout << " ✓" << std::endl;
+
+	std::cout << "\tTesting -665 + 1337" << std::flush;
+	// assert_eq( (Posit4(-665.0)  + Posit4(1337.0)).to_double(), 256.0);
+	assert_eq( (Posit8(-665.0) +  Posit8(1337.0)).to_double(), 768.0);
+	assert_eq((Posit16(-665.0) + Posit16(1337.0)).to_double(), 671.0);
+	assert_eq((Posit32(-665.0) + Posit32(1337.0)).to_double(), 672.0);
+	assert_eq((Posit64(-665.0) + Posit64(1337.0)).to_double(), 672.0);
+	std::cout << " ✓" << std::endl;
+}
+
 int main() {
 	// double vals[] = {1337};
 	test_conversion();
 	test_multiplication_base();
 	test_multiplication_easy();
 	test_multiplication_edge();
+	test_addition();
 	std::cout << std::endl;
 	if (global_fails) {
 		std::cout << "Failed " << global_fails << " test cases." << std::endl;
@@ -162,23 +190,5 @@ int main() {
 	} else {
 		std::cout << "OK" << std::endl;
 	}
-#if 0
-	double vals[] = {0, 0.0 / 0.0, 1337, 0.1337, -1, -1.5, -0.5, -0.75, -0.1337, 0.123456789, -0.123456789};
-	for (auto val : vals) {
-		Posit4 a{val};
-		Posit8 b{val};
-		Posit16 c{val};
-		Posit32 d{val};
-		Posit64 e{val};
-		// a.print_info();
-		printf("%.16lf is %.16lf\n", val, a.to_double());
-		printf("%.16lf is %.16lf\n", val, b.to_double());
-		// c.print_info();
-		printf("%.16lf is %.16lf\n", val, c.to_double());
-		printf("%.16lf is %.16lf\n", val, d.to_double());
-		// e.print_info();
-		printf("%.16lf is %.16lf\n", val, e.to_double());
-		printf("============================\n");
-	}
-#endif
 }
+
