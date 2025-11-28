@@ -82,8 +82,8 @@ Posit<N> Posit<N>::operator*(const Posit<N>& other) const {
 
 	// Formula:
 	// P = (1.f1 * 2^E1) * (1.f2 * 2^E2)
-	// Exp = (4r1 + e1) + (4r2 + e2)
-	sstorage_t exp_res = (static_cast<sstorage_t>(4) * r1 + e1) + (4 * e2);
+	// E = (4r1 + e1) + (4r2 + e2)
+	sstorage_t exp_res = (static_cast<sstorage_t>(4) * r1 + e1) + (4 * r2 + e2);
 
 	// Attach implicit 1 to mantissas
 	constexpr storage_t MSB_1 = static_cast<storage_t>(1) << (BITS - 1);
@@ -109,14 +109,14 @@ Posit<N> Posit<N>::operator*(const Posit<N>& other) const {
 	storage_t p_mid2 = m1_up * m2_lo;
 	storage_t p_upper = m1_up * m2_up;
 
-	storage_t p_mid = p_mid1 + p_mid2; // Check if this statement overflows
+	storage_t p_mid = p_mid1 + p_mid2;  // Check if this statement overflows
 	storage_t mid_carry = (p_mid < p_mid1) ? (static_cast<storage_t>(1) << H) : 0;
 
 	storage_t m_prod = p_upper + (p_mid >> H) + mid_carry;
 
-	// Normalize
+	// Normalize (Post-Normalization) - Result of 1.x * 1.y is in [1, 4).
 	if ((m_prod & MSB_MASK) == 0) {
-		m_prod <<= 1;
+		m_prod <<= 1;  // shift 'left' to normalize (<< because right-alignment)
 	} else {
 		exp_res++;
 	}
@@ -126,6 +126,7 @@ Posit<N> Posit<N>::operator*(const Posit<N>& other) const {
 	int r_final = exp_res >> 2;
 	int e_final = exp_res & 3;
 
+	f_final <<= 1;  // Remove implicit 1
 	Posit<N> result;
 	set_and_round(result, s_res, static_cast<int>(r_final), static_cast<int>(e_final), f_final);
 	return result;
