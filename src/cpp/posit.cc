@@ -68,12 +68,111 @@ constexpr std::strong_ordering Posit<N>::operator<=>(const Posit& other) const {
 }
 
 template <int N>
-Posit<N> Posit<N>::operator*(const Posit<N>& other) const {
+Posit<N> Posit<N>::operator+=(const Posit<N>& other) {
 	constexpr int BITS = std::numeric_limits<storage_t>::digits;
 	constexpr storage_t MSB_MASK = static_cast<storage_t>(1) << (BITS - 1);
 
-	if (bits == 0 || other.bits == 0) return Posit<N>(0.0);
-	if (*this == nar() || other == nar()) return nar();
+	//  Special Cases
+	if (bits == 0) {
+		*this = other;
+		return *this;
+	}
+	if (other.bits == 0) return *this;
+	if (*this == nar() || other == nar()) {
+		*this = nar();
+		return *this;
+	}
+	auto [r1, e1, f1] = this->get_components();
+	auto [r2, e2, f2] = other.get_components();
+
+	bool s1 = this->get_sign_bit();
+	bool s2 = other.get_sign_bit();
+
+	// Unify exponent: Exp = 4*r + e
+	sstorage_t exp1 = static_cast<sstorage_t>(4) * static_cast<sstorage_t>(r1) + static_cast<sstorage_t>(e1);
+	sstorage_t exp2 = static_cast<sstorage_t>(4) * static_cast<sstorage_t>(r2) + static_cast<sstorage_t>(e2);
+
+	// Mantissas: Add Implicit 1 - Shift right logic 1 to place hidden bit at MSB.
+	storage_t m1 = MSB_MASK | (f1 >> 1);
+	storage_t m2 = MSB_MASK | (f2 >> 1);
+
+	// Align exponents
+	sstorage_t shift;
+	if (exp1 < exp2) {
+		std::swap(m1, m2);
+		std::swap(s1, s2);
+		std::swap(exp1, exp2);
+	}
+	shift = exp1 - exp2;
+	storage_t sticky =  // Round up if all bits are 1
+	    shift < BITS && (m2 & ((static_cast<storage_t>(1) << shift) - 1)) ? 1 : 0;
+	m2 = (m2 >> shift) | sticky;
+
+	// Add/Sub
+	storage_t m_res = 0;
+	int res_sign = s1;
+	bool overflow = false;
+
+	if (s1 == s2) {  // Handle signs
+		m_res = m1 + m2;
+		if (m_res < m1) overflow = true;
+	} else {
+		if (m1 >= m2) {
+			m_res = m1 - m2;
+		} else {
+			m_res = m2 - m1;
+			res_sign = !s1;
+		}
+	}
+
+	if (m_res == 0) {
+		bits = static_cast<storage_t>(0);
+		return *this;
+	}
+
+	// Normalize (on overflow)
+	if (overflow) {
+		storage_t sticky = (m_res & 1);
+		m_res = (m_res >> 1) | sticky;
+		m_res |= MSB_MASK;  // The carry bit becomes MSB
+		exp1++;
+	} else {  // In case of subtraction check if mantissa needs to be aligned again
+		int lz = std::countl_zero(m_res);
+		if (lz > 0) {
+			m_res <<= lz;
+			exp1 -= lz;
+		}
+	}
+
+	// Encode
+	sstorage_t r_final = exp1 >> 2;
+	sstorage_t e_final = exp1 & 3;
+	storage_t f_final = m_res << 1;  // Extract Fraction (Remove hidden bit MSB)
+
+	set_and_round(*this, res_sign, static_cast<int>(r_final), static_cast<int>(e_final), f_final);
+	return *this;
+}
+
+template <int N>
+Posit<N> Posit<N>::operator+(const Posit<N>& other) const {
+	Posit res = *this;
+	res += other;
+	return res;
+}
+
+template <int N>
+Posit<N> Posit<N>::operator*=(const Posit<N>& other) {
+	constexpr int BITS = std::numeric_limits<storage_t>::digits;
+	constexpr storage_t MSB_MASK = static_cast<storage_t>(1) << (BITS - 1);
+
+	if (bits == 0 || other.bits == 0) {
+		bits = static_cast<sstorage_t>(0);
+		return *this;
+	}
+	if (*this == nar() || other == nar()) {
+		*this = nar();
+		return *this;
+	}
 
 	auto [r1, e1, f1] = this->get_components();
 	auto [r2, e2, f2] = other.get_components();
@@ -127,9 +226,15 @@ Posit<N> Posit<N>::operator*(const Posit<N>& other) const {
 	int e_final = exp_res & 3;
 
 	f_final <<= 1;  // Remove implicit 1
-	Posit<N> result;
-	set_and_round(result, s_res, static_cast<int>(r_final), static_cast<int>(e_final), f_final);
-	return result;
+	set_and_round(*this, s_res, static_cast<int>(r_final), static_cast<int>(e_final), f_final);
+	return *this;
+}
+
+template <int N>
+Posit<N> Posit<N>::operator*(const Posit<N>& other) const {
+	Posit res = *this;
+	res *= other;
+	return res;
 }
 
 // template<int N>

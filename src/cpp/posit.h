@@ -118,7 +118,9 @@ struct Posit {
 		return Posit<N>{static_cast<storage_t>(((~bits) + 1) & MASK)};
 	}
 	Posit operator+(const Posit& other) const;
+	Posit operator+=(const Posit& other);
 	Posit operator*(const Posit& other) const;
+	Posit operator*=(const Posit& other);
 
 	// --- Functions ---
 	/*
