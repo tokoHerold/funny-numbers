@@ -128,7 +128,7 @@ struct Posit {
 	 */
 	constexpr inline Posit nar() const { return Posit<N>{static_cast<typename Posit<N>::storage_t>(1ll << (N - 1))}; }
 	constexpr inline bool get_sign_bit() const { return (bits & (static_cast<storage_t>(1) << (N - 1))) != static_cast<storage_t>(0); }
-	double to_double();
+	double to_double() const;
 	std::tuple<int, int, storage_t> get_components() const;
 
 	/**

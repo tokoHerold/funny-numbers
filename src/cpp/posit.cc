@@ -281,7 +281,7 @@ std::tuple<int, int, typename Posit<N>::storage_t> Posit<N>::get_components() co
 }
 
 template <int N>
-double Posit<N>::to_double() {
+double Posit<N>::to_double() const {
 	if (bits == 0) {
 		return +0;
 	}
