@@ -105,6 +105,11 @@ struct PositArray<Posit4> {
 			return *this = current;
 		}
 
+		double to_double() const {
+			Posit4 current = *this;
+		   return current.to_double();	
+		}
+
 		// Implicit conversion to Posit4 (The getter)
 		operator Posit4() const { return is_upper ? pair.get_upper() : pair.get_lower(); }
 	};

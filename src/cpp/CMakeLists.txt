@@ -51,4 +51,4 @@ add_executable(cpu_posit_dgemv
     cpu_posit_gemv.cc
 	posit_gemv.h
 )
-target_link_libraries(cpu_posit_dgemv PRIVATE posit_lib ${BLAS_LIBRARIES})
+target_link_libraries(cpu_posit_dgemv PRIVATE posit_lib ${BLAS_LIBRARIES} -fopenmp)
