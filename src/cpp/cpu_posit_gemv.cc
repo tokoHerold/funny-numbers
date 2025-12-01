@@ -74,11 +74,11 @@ int main(int argc, char** argv) {
 		std::cout << "Double\tPosit64\tPosit32\tPosit16\tPosit8\tPosit4" << std::endl;
 	}
 	for (size_t row = 0; row < rows; row++) {
-		std::cout << simulation.x_f64[row] << '\t' << simulation.x_p64[row].to_double() << '\t';
-		std::cout << simulation.x_p32[row].to_double() << '\t';
-		std::cout << simulation.x_p16[row].to_double() << '\t';
-		std::cout << simulation.x_p08[row].to_double() << '\t';
-		std::cout << simulation.x_p04[row].to_double() << '\t' << std::endl;
+		std::cout << simulation.y_f64[row] << '\t' << simulation.x_p64[row].to_double() << '\t';
+		std::cout << simulation.y_p32[row].to_double() << '\t';
+		std::cout << simulation.y_p16[row].to_double() << '\t';
+		std::cout << simulation.y_p08[row].to_double() << '\t';
+		std::cout << simulation.y_p04[row].to_double() << '\t' << std::endl;
 	}
 	simulation.report_accuracy(iter % 2 == 1);
 #if false
