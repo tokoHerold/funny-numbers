@@ -49,69 +49,27 @@ int main(int argc, char** argv) {
 	Simulation simulation{n, iter};
 	std::cout << "Conversion inaccuracy:" << std::endl;
 	simulation.report_accuracy(true);
+	// std::cout << "y = [";
+	// for (auto d : simulation.y_f64) std::cout << d << ", ";
+	// std::cout << ']' << std::endl;
 	simulation.run();
+	// std::cout << "x = [";
+	// for (auto d : simulation.x_f64) std::cout << d << ", ";
+	// std::cout << ']' << std::endl;
+	// std::cout << "y = [";
+	// for (auto d : simulation.y_f64) std::cout << d << ", ";
+	// std::cout << ']' << std::endl;
 	if (rows) {
 		std::cout << "First " << rows << " results:" << std::endl;
 		std::cout << "Double\tPosit64\tPosit32\tPosit16\tPosit8\tPosit4" << std::endl;
 	}
 	for (size_t row = 0; row < rows; row++) {
-		std::cout << simulation.y_f64[row] << '\t' << simulation.x_p64[row].to_double() << '\t';
-		std::cout << simulation.y_p32[row].to_double() << '\t';
-		std::cout << simulation.y_p16[row].to_double() << '\t';
-		std::cout << simulation.y_p08[row].to_double() << '\t';
-		std::cout << simulation.y_p04[row].to_double() << '\t' << std::endl;
+		std::cout << simulation.x_f64[row] << '\t' << simulation.x_p64[row].to_double() << '\t';
+		std::cout << simulation.x_p32[row].to_double() << '\t';
+		std::cout << simulation.x_p16[row].to_double() << '\t';
+		std::cout << simulation.x_p08[row].to_double() << '\t';
+		std::cout << simulation.x_p04[row].to_double() << '\t' << std::endl;
 	}
-	simulation.report_accuracy(iter % 2 == 1);
-#if false
-	std::vector<double> data = {0.68388487739347992, 0.95939352514962573, 0.68712501907613477, 0.72565265983749538,
-	                            0.97459122967335732, 0.48655151260357221, 0.8233789504219573,  0.030202757702509214};
-
-	using T = Posit16;
-	using S = Posit16Array;
-	double result_double = data[0];
-	T result_posit(0.0);
-	S m{8};
-	S v{8};
-
-	for (int i = 0; i < 8; ++i) {
-		m[i] = T(data[i]);
-		v[i] = T(data[i]);
-	}
-
-	std::cout << std::fixed << std::setprecision(16);
-	std::cout << "Step | Posit   Value        | Double (Correct) Value | Abs Error\n";
-	std::cout << "-----|----------------------|------------------------|------------------\n";
-
-	for (size_t i = 0; i < data.size(); ++i) {
-		double val = data[i];
-
-		// Double precision calculation
-		double sq_double = val * val;
-		result_double += sq_double;
-
-		// Posit64 calculation
-		T p_val = m[i];
-
-		// Using operator*= (which uses the code you highlighted)
-		// Note: Creating a temporary for square to match "A[0] * A[0]" semantics before accumulation
-		T p_sq = p_val;
-		p_sq *= p_val;
-
-		// Using operator+= (which uses the code you highlighted)
-		v[0] += p_sq;
-
-		// Compare
-		double posit_as_double = v[0].to_double();
-		double error = std::abs(posit_as_double - result_double);
-
-		std::cout << std::setw(4) << (i + 1) << " | " << posit_as_double << " | " << result_double << " | " << error
-		          << "\n";
-	}
-
-	std::cout << "\nFinal Results:\n";
-	std::cout << "Double : " << result_double << "\n";
-	std::cout << "Posit: " << result_posit.to_double() << "\n";
-#endif
-
+	simulation.report_accuracy(true);
 	return 0;
 }
