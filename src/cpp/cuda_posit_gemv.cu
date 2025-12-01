@@ -1,8 +1,9 @@
-#include <cstdio>
-#include <vector>
-
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
+
+#include <cstdio>
+#include <type_traits>
+#include <vector>
 
 #include "cuda_posit_math.cuh"
 #include "posit_gemv.h"
@@ -106,9 +107,9 @@ void launch_gemv(const PArray& A_host, PArray& x_host, PArray& y_host, int n, in
 	CUDA_CHECK(cudaMalloc(&d_y, vec_size_bytes));
 
 	// Initial Copy
-	CUDA_CHECK(cudaMemcpy(d_A, (void *) A_host.payload.data(), mat_size_bytes, cudaMemcpyHostToDevice));
-	CUDA_CHECK(cudaMemcpy(d_x, (void *) x_host.data(), vec_size_bytes, cudaMemcpyHostToDevice));
-	CUDA_CHECK(cudaMemcpy(d_y, (void *) y_host.data(), vec_size_bytes, cudaMemcpyHostToDevice));
+	CUDA_CHECK(cudaMemcpy(d_A, (void*)A_host.payload.data(), mat_size_bytes, cudaMemcpyHostToDevice));
+	CUDA_CHECK(cudaMemcpy(d_x, (void*)x_host.data(), vec_size_bytes, cudaMemcpyHostToDevice));
+	CUDA_CHECK(cudaMemcpy(d_y, (void*)y_host.data(), vec_size_bytes, cudaMemcpyHostToDevice));
 
 	int blockSize = 256;
 	int gridSize = (n + blockSize - 1) / blockSize;
@@ -125,59 +126,58 @@ void launch_gemv(const PArray& A_host, PArray& x_host, PArray& y_host, int n, in
 	// Logic: In CPU code, `y = sum; swap(x,y)`.
 	// After 1 iter: y holds old x, x holds new sum.
 	// We must ensure host X and Y reflect the final device state.
-	CUDA_CHECK(cudaMemcpy((void *) x_host.data(), d_x, vec_size_bytes, cudaMemcpyDeviceToHost));
-	CUDA_CHECK(cudaMemcpy((void *) y_host.data(), d_y, vec_size_bytes, cudaMemcpyDeviceToHost));
+	CUDA_CHECK(cudaMemcpy((void*)x_host.data(), d_x, vec_size_bytes, cudaMemcpyDeviceToHost));
+	CUDA_CHECK(cudaMemcpy((void*)y_host.data(), d_y, vec_size_bytes, cudaMemcpyDeviceToHost));
 
 	cudaFree(d_A);
 	cudaFree(d_x);
 	cudaFree(d_y);
 }
 
-void Simulation::double_gemv(const std::vector<double>& A, std::vector<double>& x, std::vector<double>& y) {
-		
-    double *d_A = nullptr, *d_x = nullptr, *d_y = nullptr;
-    int n = x.size();
-    const double alpha = 1.0, beta = 1.0;
-    cublasHandle_t cublasH;
-    cudaStream_t stream;
+template <typename T>
+void Simulation::ieee754_gemv(const std::vector<T>& A, std::vector<T>& x, std::vector<T>& y) {
+	T *d_A = nullptr, *d_x = nullptr, *d_y = nullptr;
+	int n = x.size();
+	const T alpha = 1.0, beta = 1.0;
+	cublasHandle_t cublasH;
+	cudaStream_t stream;
 
-    /* step 1: create cublas handle, bind a stream */
-    CUBLAS_CHECK(cublasCreate(&cublasH));
+	/* step 1: create cublas handle, bind a stream */
+	CUBLAS_CHECK(cublasCreate(&cublasH));
 
-    CUDA_CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
-    CUBLAS_CHECK(cublasSetStream(cublasH, stream));
+	CUDA_CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
+	CUBLAS_CHECK(cublasSetStream(cublasH, stream));
 
-    /* step 2: copy data to device */
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_A), sizeof(double) * A.size()));
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_x), sizeof(double) * x.size()));
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_y), sizeof(double) * y.size()));
-		CUDA_CHECK(cudaMemcpyAsync(d_A, A.data(), sizeof(double) * A.size(), cudaMemcpyHostToDevice, stream));
-    CUDA_CHECK(cudaMemcpyAsync(d_x, x.data(), sizeof(double) * x.size(), cudaMemcpyHostToDevice, stream));
-    // Enforce strict IEEE 754 64-bit compliance (Pedantic Math)
-    CUBLAS_CHECK(cublasSetMathMode(cublasH, CUBLAS_PEDANTIC_MATH));
+	/* step 2: copy data to device */
+	CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_A), sizeof(T) * A.size()));
+	CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_x), sizeof(T) * x.size()));
+	CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_y), sizeof(T) * y.size()));
+	CUDA_CHECK(cudaMemcpyAsync(d_A, A.data(), sizeof(T) * A.size(), cudaMemcpyHostToDevice, stream));
+	CUDA_CHECK(cudaMemcpyAsync(d_x, x.data(), sizeof(T) * x.size(), cudaMemcpyHostToDevice, stream));
+	// Enforce strict IEEE 754 64-bit compliance (Pedantic Math)
+	CUBLAS_CHECK(cublasSetMathMode(cublasH, CUBLAS_PEDANTIC_MATH));
 
-    /* step 3: compute */
-    for (int i = 0; i < iterations; ++i) {
-        CUBLAS_CHECK(cublasDgemv(cublasH, CUBLAS_OP_T, n, n, &alpha, d_A, n, d_x, 1, &beta, d_y, 1));
-        std::swap(d_x, d_y); 
-    }
+	/* step 3: compute */
+	for (int i = 0; i < iterations; ++i) {
+		if constexpr (std::is_same_v<T, double>) {
+		CUBLAS_CHECK(cublasDgemv(cublasH, CUBLAS_OP_T, n, n, &alpha, d_A, n, d_x, 1, &beta, d_y, 1));
+} else if constexpr (std::is_same_v<T, float>) {
+		CUBLAS_CHECK(cublasSgemv(cublasH, CUBLAS_OP_T, n, n, &alpha, d_A, n, d_x, 1, &beta, d_y, 1));
 
-    /* step 4: copy data to host */
-    CUDA_CHECK(cudaMemcpyAsync(y.data(), d_y, sizeof(double) * y.size(), cudaMemcpyDeviceToHost,
-                               stream));
+}
+		std::swap(d_x, d_y);
+	}
 
-  /* free resources */
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+	/* step 4: copy data to host */
+	CUDA_CHECK(cudaMemcpyAsync(y.data(), d_y, sizeof(T) * y.size(), cudaMemcpyDeviceToHost, stream));
+
+	/* free resources */
+	CUDA_CHECK(cudaStreamSynchronize(stream));
 	cudaFree(d_A);
 	cudaFree(d_x);
 	cudaFree(d_y);
-  CUBLAS_CHECK(cublasDestroy(cublasH));
-  CUDA_CHECK(cudaStreamDestroy(stream));
-
-}
-
-void Simulation::float_gemv(const std::vector<float>& A, std::vector<float>& x, std::vector<float>& y) {
-    return;
+	CUBLAS_CHECK(cublasDestroy(cublasH));
+	CUDA_CHECK(cudaStreamDestroy(stream));
 }
 
 // --- Implementation of Simulation Wrapper ---
@@ -210,7 +210,7 @@ int main(int argc, char** argv) {
 		std::cout << simulation.x_p08[row].to_double() << '\t';
 		std::cout << simulation.x_p04[row].to_double() << '\t' << std::endl;
 	}
-	// simulation.report_accuracy(true);
+	simulation.report_accuracy(true);
 	simulation.run();
 	if (rows) {
 		std::cout << "First " << rows << " results:" << std::endl;
@@ -223,5 +223,5 @@ int main(int argc, char** argv) {
 		std::cout << simulation.y_p08[row].to_double() << '\t';
 		std::cout << simulation.y_p04[row].to_double() << '\t' << std::endl;
 	}
-	// simulation.report_accuracy(iter % 2 == 1);
-  }
+	simulation.report_accuracy(iter % 2 == 1);
+}

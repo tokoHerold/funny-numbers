@@ -1,47 +1,28 @@
 #include <cblas.h>
 
 #include <iostream>
+#include <type_traits>
 #include <vector>
 
 #include "packed_posit.h"
 #include "posit.h"
 #include "posit_gemv.h"
 
-void Simulation::double_gemv(const std::vector<double>& A, std::vector<double>& x, std::vector<double>& y) {
-	for (int iteration = 0; iteration < iterations; ++iteration) {
-		// std::vector<double> V_old = V;
-		cblas_dgemv(CblasRowMajor,  // Layout: Row-major (standard C/C++ 2D arrays)
-		            CblasNoTrans,   // Transpose: No transpose for matrix A
-		            N,              // M: Number of rows in matrix A
-		            N,              // N: Number of columns in matrix A
-		            1.0,            // alpha: Scalar multiplier for A * x
-		            A.data(),       // A: Pointer to the matrix A data
-		            N,              // lda: Leading dimension of A (stride between rows)
-		            x.data(),       // x: Pointer to the vector x data
-		            1,              // incx: Stride for vector x
-		            1.0,            // beta: Scalar multiplier for y
-		            y.data(),       // y: Pointer to the vector y data (output)
-		            1);             // incy: Stride for vector y
-		std::swap(x, y);
-	}
-	return;
-}
+template <typename T>
+void Simulation::ieee754_gemv(const std::vector<T>& A, std::vector<T>& x, std::vector<T>& y) {
+	auto mem_order = CblasRowMajor;  // Layout: Row-major (standard C/C++ 2D arrays)
+	auto transposed = CblasNoTrans;  // Transpose: No transpose for matrix A
+	T alpha = 1.0, beta = 1.0;       // alpha: Scalar multiplier for A * x - beta: Scalar multiplier for y
+	int inc_x = 1, inc_y = 1;        // incx: Stride for vector x - incy: Stride for vector y
 
-void Simulation::float_gemv(const std::vector<float>& A, std::vector<float>& x, std::vector<float>& y) {
 	for (int iteration = 0; iteration < iterations; ++iteration) {
 		// std::vector<double> V_old = V;
-		cblas_sgemv(CblasRowMajor,  // Layout: Row-major (standard C/C++ 2D arrays)
-		            CblasNoTrans,   // Transpose: No transpose for matrix A
-		            N,              // M: Number of rows in matrix A
-		            N,              // N: Number of columns in matrix A
-		            1.0,            // alpha: Scalar multiplier for A * x
-		            A.data(),       // A: Pointer to the matrix A data
-		            N,              // lda: Leading dimension of A (stride between rows)
-		            x.data(),       // x: Pointer to the vector x data
-		            1,              // incx: Stride for vector x
-		            1.0,            // beta: Scalar multiplier for y
-		            y.data(),       // y: Pointer to the vector y data (output)
-		            1);             // incy: Stride for vector y
+		if constexpr (std::is_same_v<T, double>) {
+			cblas_dgemv(mem_order, transposed, N, N, alpha, A.data(), N, x.data(), inc_x, beta, y.data(), inc_y);
+
+		} else if constexpr (std::is_same_v<T, float>) {
+			cblas_sgemv(mem_order, transposed, N, N, alpha, A.data(), N, x.data(), inc_x, beta, y.data(), inc_y);
+		}
 		std::swap(x, y);
 	}
 	return;
@@ -50,7 +31,7 @@ void Simulation::float_gemv(const std::vector<float>& A, std::vector<float>& x, 
 template <typename PArray>
 void Simulation::posit_gemv(const PArray& A, PArray& x, PArray& y) {
 	for (int iteration = 0; iteration < iterations; ++iteration) {
-		#pragma omp parallel for
+#pragma omp parallel for
 		for (size_t i = 0; i < N; ++i) {
 			auto sum = y[i];
 			for (size_t j = 0; j < N; ++j) {

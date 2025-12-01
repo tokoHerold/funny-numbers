@@ -34,7 +34,8 @@ class Simulation {
 	/*
 	 * @brief Executes the specified number of GEMV operations on the double data type
 	 */
-	void double_gemv(const std::vector<double>& A, std::vector<double>& x, std::vector<double>& y);
+	template<typename T>
+	void ieee754_gemv(const std::vector<T>& A, std::vector<T>& x, std::vector<T>& y);
 
 	/*
 	 * @brief Executes the specified number of GEMV operations on the float data type
@@ -161,8 +162,8 @@ class Simulation {
 	 * @brief This function executes the GEMV loops.
 	 */
 	void run() {
-		double_gemv(A_f64, x_f64, y_f64);
-		float_gemv(A_f32, x_f32, y_f32);
+		ieee754_gemv(A_f64, x_f64, y_f64);
+		ieee754_gemv(A_f32, x_f32, y_f32);
 		posit_gemv(A_p04, x_p04, y_p04);
 		posit_gemv(A_p08, x_p08, y_p08);
 		posit_gemv(A_p16, x_p16, y_p16);
